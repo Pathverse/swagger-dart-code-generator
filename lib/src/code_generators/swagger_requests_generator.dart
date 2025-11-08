@@ -540,6 +540,18 @@ class SwaggerRequestsGenerator extends SwaggerGeneratorBase {
   Expression _getParameterAnnotation(SwaggerRequestParameter parameter) {
     switch (parameter.inParameter) {
       case kFormData:
+        if (parameter.type == kFile) {
+          return refer(
+            kPartFile.pascalCase,
+          ).call([literalString(parameter.name.replaceAll('\$', ''))]);
+        }
+
+        if (parameter.type == kArray && parameter.items?.type == kFile) {
+          return refer(
+            kPartFile.pascalCase,
+          ).call([literalString(parameter.name.replaceAll('\$', ''))]);
+        }
+
         return refer(kField).call([literalString(parameter.name.replaceAll('\$', ''))]);
       case kBody:
         return refer(kBody.pascalCase).call([]);
@@ -697,6 +709,10 @@ class SwaggerRequestsGenerator extends SwaggerGeneratorBase {
       return 'List?';
     }
 
+    if (name == kFile) {
+      return options.multipartFileType;
+    }
+
     final result = kBasicTypesMap[name] ?? '';
 
     if (result.isEmpty) {
@@ -720,8 +736,9 @@ class SwaggerRequestsGenerator extends SwaggerGeneratorBase {
     definedParameters.addAll(root.parameters);
     definedParameters.addAll(root.components?.parameters ?? {});
 
-    final securityParameters =
-        swaggerRequest.security.map((e) => root.securityDefinitions[e]).nonNulls;
+    final securityParameters = swaggerRequest.security
+        .map((e) => root.securityDefinitions[e])
+        .nonNulls;
 
     final additionalHeaders = options.additionalHeaders.map(
       (e) => SwaggerRequestParameter(inParameter: 'header', name: e, type: 'String'),
@@ -738,15 +755,17 @@ class SwaggerRequestsGenerator extends SwaggerGeneratorBase {
         .where((swaggerParameter) => ignoreHeaders ? swaggerParameter.inParameter != kHeader : true)
         .where((swaggerParameter) => swaggerParameter.inParameter != kCookie)
         .where((swaggerParameter) => swaggerParameter.inParameter.isNotEmpty)
-        .map(
-          (swaggerParameter) => Parameter(
+        .map((swaggerParameter) {
+          final isRequired =
+              swaggerParameter.isRequired &&
+              _getHeaderDefaultValue(swaggerParameter) == null &&
+              swaggerParameter.inParameter != kHeader;
+
+          return Parameter(
             (p) => p
               ..name = swaggerParameter.name.asParameterName()
               ..named = true
-              ..required =
-                  swaggerParameter.isRequired &&
-                  _getHeaderDefaultValue(swaggerParameter) == null &&
-                  swaggerParameter.inParameter != kHeader
+              ..required = isRequired
               ..type = Reference(
                 _getParameterTypeName(
                   parameter: swaggerParameter,
@@ -756,13 +775,13 @@ class SwaggerRequestsGenerator extends SwaggerGeneratorBase {
                   modelPostfix: modelPostfix,
                   allEnums: allEnums,
                   root: root,
-                ).makeNullable(),
+                ).makeNullable(required: isRequired),
               )
               ..named = true
               ..annotations.add(_getParameterAnnotation(swaggerParameter))
               ..defaultTo = _getHeaderDefaultValue(swaggerParameter),
-          ),
-        )
+          );
+        })
         .toList();
 
     final requestBody = swaggerRequest.requestBody;
